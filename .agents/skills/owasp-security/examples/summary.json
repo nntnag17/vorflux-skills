@@ -1,0 +1,18 @@
+{
+  "total_findings": 7,
+  "skipped_tools": [
+    "semgrep",
+    "gitleaks",
+    "trufflehog",
+    "osv-scanner"
+  ],
+  "findings": [
+    {
+      "category": "A02/A03",
+      "tool": "bandit",
+      "severity": "MEDIUM",
+      "count": 7,
+      "message": "7 Python security issue(s)"
+    }
+  ]
+}

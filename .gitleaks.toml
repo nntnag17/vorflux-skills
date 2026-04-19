@@ -1,0 +1,9 @@
+# .gitleaks.toml — repo-root gitleaks config.
+# The files under examples/ are intentionally vulnerable for demonstration purposes
+# and do not contain real secrets.
+
+[allowlist]
+description = "Intentionally vulnerable sample files for owasp-security skill demos"
+paths = [
+  '''\.agents/skills/owasp-security/examples/.*''',
+]
