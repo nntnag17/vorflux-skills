@@ -323,6 +323,7 @@ run_secret_scan() {
       --include="*.py" --include="*.js" --include="*.ts" --include="*.go" \
       --include="*.rb" --include="*.java" --include="*.env" \
       --include="*.yaml" --include="*.yml" --include="*.json" \
+      --exclude-dir="owasp-findings" \
       "$TARGET" 2>/dev/null \
       | grep -v -E "test|spec|mock|example|sample|placeholder|TODO|FIXME" \
       | head -20 > "$out_file" || true

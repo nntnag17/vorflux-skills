@@ -24,9 +24,17 @@ run_and_report() {
   local framework="$1"; shift
   echo -e "${CYAN}  Detected: $framework${NC}"
   echo -e "${CYAN}  Running: $*${NC}\n"
-  if "$@"; then
+  "$@"
+  local rc=$?
+  if [ "$rc" -eq 0 ]; then
     echo -e "\n${GREEN}${BOLD}  TEST RESULT: PASSED ($framework)${NC}"
     exit 0
+  elif [ "$rc" -eq 5 ]; then
+    # Exit code 5 = unittest "no tests ran" — treat as BLOCKED, not FAILED.
+    # This happens when pytest-style tests (def test_*) exist but pytest is
+    # not installed and unittest discover finds 0 TestCase subclasses.
+    echo -e "\n${YELLOW}${BOLD}  TEST RESULT: BLOCKED ($framework — no tests ran; install pytest to run these tests)${NC}"
+    exit 2
   else
     echo -e "\n${RED}${BOLD}  TEST RESULT: FAILED ($framework)${NC}"
     echo -e "${RED}  Fix failing tests before proceeding with the security audit.${NC}"
