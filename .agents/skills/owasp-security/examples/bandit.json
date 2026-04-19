@@ -1,0 +1,174 @@
+{
+  "errors": [],
+  "generated_at": "2026-04-19T20:12:20Z",
+  "metrics": {
+    "/code/nntnag17/vorflux-skills/.agents/skills/owasp-security/examples/vulnerable_sample.py": {
+      "CONFIDENCE.HIGH": 5,
+      "CONFIDENCE.LOW": 1,
+      "CONFIDENCE.MEDIUM": 1,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 2,
+      "SEVERITY.LOW": 2,
+      "SEVERITY.MEDIUM": 3,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 31,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "_totals": {
+      "CONFIDENCE.HIGH": 5,
+      "CONFIDENCE.LOW": 1,
+      "CONFIDENCE.MEDIUM": 1,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 2,
+      "SEVERITY.LOW": 2,
+      "SEVERITY.MEDIUM": 3,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 31,
+      "nosec": 0,
+      "skipped_tests": 0
+    }
+  },
+  "results": [
+    {
+      "code": "9 import sqlite3\n10 import subprocess\n11 import os\n",
+      "col_offset": 0,
+      "end_col_offset": 17,
+      "filename": "/code/nntnag17/vorflux-skills/.agents/skills/owasp-security/examples/vulnerable_sample.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Consider possible security implications associated with the subprocess module.",
+      "line_number": 10,
+      "line_range": [
+        10
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess",
+      "test_id": "B404",
+      "test_name": "blacklist"
+    },
+    {
+      "code": "18 # DB_PASSWORD is long enough to match the grep-fallback secret pattern in owasp_scan.sh\n19 DB_PASSWORD = \"super-secret-db-password-demo\"         # A02: hardcoded credential (demo) # gitleaks:allow\n20 \n",
+      "col_offset": 14,
+      "end_col_offset": 45,
+      "filename": "/code/nntnag17/vorflux-skills/.agents/skills/owasp-security/examples/vulnerable_sample.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 259,
+        "link": "https://cwe.mitre.org/data/definitions/259.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Possible hardcoded password: 'super-secret-db-password-demo'",
+      "line_number": 19,
+      "line_range": [
+        19
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html",
+      "test_id": "B105",
+      "test_name": "hardcoded_password_string"
+    },
+    {
+      "code": "22     # A02: MD5 is cryptographically broken for password storage\n23     return hashlib.md5(password.encode()).hexdigest()\n24 \n",
+      "col_offset": 11,
+      "end_col_offset": 41,
+      "filename": "/code/nntnag17/vorflux-skills/.agents/skills/owasp-security/examples/vulnerable_sample.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 327,
+        "link": "https://cwe.mitre.org/data/definitions/327.html"
+      },
+      "issue_severity": "HIGH",
+      "issue_text": "Use of weak MD5 hash for security. Consider usedforsecurity=False",
+      "line_number": 23,
+      "line_range": [
+        23
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html",
+      "test_id": "B324",
+      "test_name": "hashlib"
+    },
+    {
+      "code": "31     # A03: string concatenation in SQL query \u2014 injectable\n32     query = \"SELECT * FROM users WHERE username = '\" + username + \"'\"\n33     cursor.execute(query)\n",
+      "col_offset": 12,
+      "end_col_offset": 52,
+      "filename": "/code/nntnag17/vorflux-skills/.agents/skills/owasp-security/examples/vulnerable_sample.py",
+      "issue_confidence": "LOW",
+      "issue_cwe": {
+        "id": 89,
+        "link": "https://cwe.mitre.org/data/definitions/89.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible SQL injection vector through string-based query construction.",
+      "line_number": 32,
+      "line_range": [
+        32
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
+      "test_id": "B608",
+      "test_name": "hardcoded_sql_expressions"
+    },
+    {
+      "code": "40     # A03: shell=True with user-controlled input \u2014 command injection\n41     result = subprocess.run(\"ping -c 1 \" + host, shell=True, capture_output=True)\n42     return result.stdout\n",
+      "col_offset": 13,
+      "end_col_offset": 81,
+      "filename": "/code/nntnag17/vorflux-skills/.agents/skills/owasp-security/examples/vulnerable_sample.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "HIGH",
+      "issue_text": "subprocess call with shell=True identified, security issue.",
+      "line_number": 41,
+      "line_range": [
+        41
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html",
+      "test_id": "B602",
+      "test_name": "subprocess_popen_with_shell_equals_true"
+    },
+    {
+      "code": "48     # A03: eval() on untrusted input allows arbitrary code execution\n49     return eval(expression)\n50 \n",
+      "col_offset": 11,
+      "end_col_offset": 27,
+      "filename": "/code/nntnag17/vorflux-skills/.agents/skills/owasp-security/examples/vulnerable_sample.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Use of possibly insecure function - consider using safer ast.literal_eval.",
+      "line_number": 49,
+      "line_range": [
+        49
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b307-eval",
+      "test_id": "B307",
+      "test_name": "blacklist"
+    },
+    {
+      "code": "57     # e.g., http://169.254.169.254/latest/meta-data/\n58     return urllib.request.urlopen(url).read()\n59 \n",
+      "col_offset": 11,
+      "end_col_offset": 38,
+      "filename": "/code/nntnag17/vorflux-skills/.agents/skills/owasp-security/examples/vulnerable_sample.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 22,
+        "link": "https://cwe.mitre.org/data/definitions/22.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+      "line_number": 58,
+      "line_range": [
+        58
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+      "test_id": "B310",
+      "test_name": "blacklist"
+    }
+  ]
+}
