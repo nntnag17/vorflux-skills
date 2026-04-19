@@ -21,6 +21,7 @@ import os
 import json
 import re
 import ast
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -227,9 +228,8 @@ def extract_python_api(files: list) -> list:
         if not src:
             continue
         try:
-            import warnings as _warnings
-            with _warnings.catch_warnings():
-                _warnings.simplefilter("ignore", SyntaxWarning)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
                 tree = ast.parse(src)
         except SyntaxError:
             continue

@@ -2,6 +2,11 @@
 
 Each test creates a minimal fixture directory representing a language stack,
 runs the script against it, and asserts key JSON fields are correct.
+
+Dual entry points:
+  - pytest: fixtures like ``tmp_path`` are injected automatically by pytest.
+  - direct: ``python test_explore_codebase.py`` uses the ``if __name__ == "__main__"``
+    block, which passes a ``Path(tempdir)`` positionally in place of ``tmp_path``.
 """
 
 import json
@@ -176,8 +181,8 @@ def test_render_flag(tmp_path):
     assert out_path.exists(), "README file was not created"
     content = out_path.read_text()
     assert "my-lib" in content, "README should contain project name"
-    assert "## Installation" in content or "## Getting Started" in content, \
-        "README should contain installation/getting-started section"
+    assert "## Installation" in content, \
+        "README should contain ## Installation section"
 
 
 # ---------------------------------------------------------------------------
