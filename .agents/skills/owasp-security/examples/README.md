@@ -10,7 +10,7 @@ tools are not installed.
 | File | Purpose |
 |------|---------|
 | `vulnerable_sample.py` | Intentionally insecure Python file covering A02 (weak crypto, hardcoded credentials), A03 (SQL injection, shell injection, eval), A09 (password in logs), and A10 (SSRF). **Do not use any of these patterns in production.** |
-| `summary.json` | Normalized JSON output from `owasp_scan.sh` — 7 bandit findings, skipped tools listed. |
+| `summary.json` | Normalized JSON output from `owasp_scan.sh` — 7 bandit findings, skipped tools listed. This file is intentionally compact (one aggregated record per tool); per-finding detail (file, line, rule, severity) lives in `bandit.json`. |
 | `bandit.json` | Raw bandit output (full detail per finding). |
 
 ## How the scan was run
