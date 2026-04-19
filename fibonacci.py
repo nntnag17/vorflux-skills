@@ -9,17 +9,14 @@ Provides three DP-based approaches:
 
 from __future__ import annotations
 
-import sys
-from typing import List
-
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-# CPython's default recursion limit is 1 000.  For very large n the iterative
-# DP approach is unbounded in practice, but we cap at a reasonable value to
-# prevent runaway memory allocation.
+# Upper bound on *n* to prevent runaway memory allocation.  Values close to
+# this cap can take noticeable time and memory because Python ints for large
+# Fibonacci numbers have thousands of digits.
 _MAX_N: int = 10_000
 
 
@@ -33,17 +30,12 @@ def _validate_n(n: object) -> int:
     Raises
     ------
     TypeError
-        If *n* is not an integer type (``int`` or ``bool`` is excluded —
-        ``bool`` is a subclass of ``int`` in Python but semantically wrong
-        here, so it is explicitly rejected).
+        If *n* is not an integer type (``bool`` is a subclass of ``int`` in
+        Python but semantically wrong here, so it is explicitly rejected).
     ValueError
         If *n* is negative or exceeds ``_MAX_N``.
     """
-    if isinstance(n, bool):
-        raise TypeError(
-            f"n must be a non-negative integer, got {type(n).__name__!r}"
-        )
-    if not isinstance(n, int):
+    if isinstance(n, bool) or not isinstance(n, int):
         raise TypeError(
             f"n must be a non-negative integer, got {type(n).__name__!r}"
         )
@@ -93,14 +85,10 @@ def fibonacci(n: int) -> int:
     55
     """
     n = _validate_n(n)
+    if n < 2:
+        return n
 
-    if n == 0:
-        return 0
-    if n == 1:
-        return 1
-
-    dp: List[int] = [0] * (n + 1)
-    dp[0] = 0
+    dp: list[int] = [0] * (n + 1)
     dp[1] = 1
     for i in range(2, n + 1):
         dp[i] = dp[i - 1] + dp[i - 2]
@@ -138,9 +126,8 @@ def fibonacci_optimized(n: int) -> int:
     13
     """
     n = _validate_n(n)
-
-    if n == 0:
-        return 0
+    if n < 2:
+        return n
 
     prev, curr = 0, 1
     for _ in range(2, n + 1):
@@ -148,7 +135,7 @@ def fibonacci_optimized(n: int) -> int:
     return curr
 
 
-def fibonacci_sequence(n: int) -> List[int]:
+def fibonacci_sequence(n: int) -> list[int]:
     """Return the Fibonacci sequence from F(0) through F(n) inclusive.
 
     Parameters
@@ -178,12 +165,9 @@ def fibonacci_sequence(n: int) -> List[int]:
     """
     n = _validate_n(n)
 
-    if n == 0:
-        return [0]
-    if n == 1:
-        return [0, 1]
-
-    seq: List[int] = [0, 1] + [0] * (n - 1)
+    seq: list[int] = [0] * (n + 1)
+    if n >= 1:
+        seq[1] = 1
     for i in range(2, n + 1):
         seq[i] = seq[i - 1] + seq[i - 2]
     return seq

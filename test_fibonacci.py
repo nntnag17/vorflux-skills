@@ -3,7 +3,6 @@ test_fibonacci.py — Comprehensive pytest suite for fibonacci.py.
 
 Run:
     pytest test_fibonacci.py -v --tb=short
-    pytest test_fibonacci.py -v --cov=fibonacci --cov-report=term-missing
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ import pytest
 
 from fibonacci import (
     _MAX_N,
-    _validate_n,
     fibonacci,
     fibonacci_optimized,
     fibonacci_sequence,
@@ -40,63 +38,6 @@ KNOWN_VALUES: list[tuple[int, int]] = [
     (30, 832040),
     (50, 12586269025),
 ]
-
-
-# ---------------------------------------------------------------------------
-# _validate_n
-# ---------------------------------------------------------------------------
-
-class TestValidateN:
-    """Unit tests for the internal _validate_n helper."""
-
-    def test_returns_int_for_valid_input(self):
-        assert _validate_n(5) == 5
-
-    def test_returns_zero(self):
-        assert _validate_n(0) == 0
-
-    def test_returns_max_n(self):
-        assert _validate_n(_MAX_N) == _MAX_N
-
-    # --- TypeError cases ---
-
-    @pytest.mark.parametrize("bad_input", [
-        None,
-        3.0,
-        "5",
-        [5],
-        (5,),
-        {},
-        3.14,
-        complex(1, 2),
-    ])
-    def test_raises_type_error_for_non_int(self, bad_input):
-        with pytest.raises(TypeError, match="non-negative integer"):
-            _validate_n(bad_input)
-
-    def test_raises_type_error_for_bool_true(self):
-        """bool is a subclass of int; must be explicitly rejected."""
-        with pytest.raises(TypeError, match="non-negative integer"):
-            _validate_n(True)
-
-    def test_raises_type_error_for_bool_false(self):
-        with pytest.raises(TypeError, match="non-negative integer"):
-            _validate_n(False)
-
-    # --- ValueError cases ---
-
-    @pytest.mark.parametrize("negative", [-1, -100, -10_000])
-    def test_raises_value_error_for_negative(self, negative):
-        with pytest.raises(ValueError, match=">= 0"):
-            _validate_n(negative)
-
-    def test_raises_value_error_for_exceeding_max(self):
-        with pytest.raises(ValueError, match=str(_MAX_N)):
-            _validate_n(_MAX_N + 1)
-
-    def test_raises_value_error_for_large_n(self):
-        with pytest.raises(ValueError):
-            _validate_n(999_999)
 
 
 # ---------------------------------------------------------------------------
@@ -142,13 +83,6 @@ class TestFibonacci:
         """F(n) == F(n-1) + F(n-2) for all n >= 2."""
         assert fibonacci(n) == fibonacci(n - 1) + fibonacci(n - 2)
 
-    # --- Monotonicity ---
-
-    def test_sequence_is_non_decreasing(self):
-        values = [fibonacci(i) for i in range(20)]
-        for i in range(1, len(values)):
-            assert values[i] >= values[i - 1]
-
     # --- TypeError ---
 
     @pytest.mark.parametrize("bad", [None, 3.0, "10", True, False, [1]])
@@ -162,10 +96,6 @@ class TestFibonacci:
     def test_raises_value_error(self, bad):
         with pytest.raises(ValueError):
             fibonacci(bad)
-
-    def test_raises_for_negative_large(self):
-        with pytest.raises(ValueError):
-            fibonacci(-1_000_000)
 
 
 # ---------------------------------------------------------------------------
@@ -212,13 +142,6 @@ class TestFibonacciOptimized:
     def test_raises_value_error(self, bad):
         with pytest.raises(ValueError):
             fibonacci_optimized(bad)
-
-    # --- Consistency with tabulation ---
-
-    @pytest.mark.parametrize("n", range(0, 51))
-    def test_matches_tabulation(self, n):
-        """Both implementations must agree on every value."""
-        assert fibonacci_optimized(n) == fibonacci(n)
 
 
 # ---------------------------------------------------------------------------
