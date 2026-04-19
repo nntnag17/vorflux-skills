@@ -28,6 +28,11 @@ tool_available() {
 }
 
 has_files() {
+  # Usage: has_files <path> <glob> [glob ...]
+  # When <path> is a regular file, matches globs against the file's basename only.
+  # When <path> is a directory, searches recursively via find.
+  # Note: directory-name globs (e.g. "spec", "test") only work correctly when
+  # <path> is a directory — passing a single file will never match them.
   local dir="$1"; shift
   if [ -f "$dir" ]; then
     local fname

@@ -51,20 +51,22 @@ tool_available() {
 }
 
 has_files() {
+  # Usage: has_files <path> <glob> [glob ...]
+  # When <path> is a regular file, matches globs against the file's basename only.
+  # When <path> is a directory, searches recursively via find.
+  # Note: directory-name globs (e.g. "spec", "test") only work correctly when
+  # <path> is a directory — passing a single file will never match them.
   local dir="$1"; shift
-  # If target is a regular file, match against its own name
   if [ -f "$dir" ]; then
     local fname
     fname="$(basename "$dir")"
     for glob in "$@"; do
-      # Use case for glob matching without spawning a subshell
       case "$fname" in
         $glob) return 0 ;;
       esac
     done
     return 1
   fi
-  # Target is a directory — search recursively
   for glob in "$@"; do
     if find "$dir" -name "$glob" -quit 2>/dev/null | grep -q .; then
       return 0

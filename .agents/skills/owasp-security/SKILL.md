@@ -18,6 +18,8 @@ Perform a comprehensive security audit covering all OWASP Top 10 2021 categories
 
 **Scope:** Python, Node.js, Go, Rust, Ruby, Java, and container workloads. For general code quality (correctness, performance, maintainability) use the `code-review` skill instead.
 
+> **Example run:** See [`examples/`](.agents/skills/owasp-security/examples/README.md) for a sample scan against a deliberately vulnerable Python file — `summary.json` and `bandit.json` show the skill producing 7 real findings.
+
 ## How to use
 
 ```
