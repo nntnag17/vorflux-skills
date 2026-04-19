@@ -14,7 +14,11 @@
 
 set -uo pipefail
 
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
+
 TARGET="${1:-.}"
 OUT_DIR="./owasp-findings"
 SUMMARY_FILE="$OUT_DIR/summary.json"
@@ -22,13 +26,6 @@ SUMMARY_FILE="$OUT_DIR/summary.json"
 NDJSON_FILE="$OUT_DIR/findings.ndjson"
 FINDINGS=0
 SKIPPED_TOOLS=()
-
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
 
 mkdir -p "$OUT_DIR"
 # Start fresh
@@ -46,37 +43,14 @@ section() {
   echo -e "\n${CYAN}── $1 ──${NC}"
 }
 
-tool_available() {
-  command -v "$1" &>/dev/null
-}
-
-has_files() {
-  # Usage: has_files <path> <glob> [glob ...]
-  # When <path> is a regular file, matches globs against the file's basename only.
-  # When <path> is a directory, searches recursively via find.
-  # Note: directory-name globs (e.g. "spec", "test") only work correctly when
-  # <path> is a directory — passing a single file will never match them.
-  local dir="$1"; shift
-  if [ -f "$dir" ]; then
-    local fname
-    fname="$(basename "$dir")"
-    for glob in "$@"; do
-      case "$fname" in
-        $glob) return 0 ;;
-      esac
-    done
-    return 1
-  fi
-  for glob in "$@"; do
-    if find "$dir" -name "$glob" -quit 2>/dev/null | grep -q .; then
-      return 0
-    fi
-  done
-  return 1
-}
-
 # Append one NDJSON record and increment the global counter.
 # All string escaping is handled by python3 — no sed metacharacter risk.
+#
+# Callers that have per-severity data (e.g. semgrep, bandit, npm audit, trivy)
+# should invoke record_finding once per severity bucket so that the final
+# summary.json preserves the real severity distribution rather than collapsing
+# every scanner result to a single hard-coded severity. record_by_severity()
+# below is a convenience wrapper for that case.
 record_finding() {
   local category="$1" tool="$2" severity="$3" count="$4" message="$5"
   FINDINGS=$((FINDINGS + count))
@@ -91,6 +65,43 @@ rec = {
 }
 print(json.dumps(rec))
 " "$category" "$tool" "$severity" "$count" "$message" >> "$NDJSON_FILE"
+}
+
+# record_by_severity — emit one record per severity bucket.
+#
+# Takes the bucket lines as a single string argument (not on stdin) so the
+# function runs in the caller's shell and can mutate FINDINGS via
+# record_finding. Passing the data through a pipeline would spawn a subshell
+# and the parent FINDINGS counter would stay at 0.
+#
+# <buckets> is a newline-separated string of "<SEVERITY> <COUNT>" lines
+# (extra whitespace OK). Each non-zero bucket is mapped through <sev_map_py>
+# (a python dict literal) to the report severity, then written via
+# record_finding.
+#
+# Usage:
+#   record_by_severity "A02/A03" "bandit" \
+#     "{'HIGH':'HIGH','MEDIUM':'MEDIUM','LOW':'LOW'}" \
+#     "Python security issue" \
+#     "$buckets"
+record_by_severity() {
+  local category="$1" tool="$2" sev_map_py="$3" noun="$4" buckets="$5"
+  local line scanner_sev count report_sev
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    # shellcheck disable=SC2086
+    set -- $line
+    scanner_sev="${1:-}"
+    count="${2:-0}"
+    [ "${count:-0}" -gt 0 ] || continue
+    report_sev=$(python3 -c "
+import sys
+m = ${sev_map_py}
+print(m.get(sys.argv[1].upper(), 'MEDIUM'))
+" "$scanner_sev")
+    record_finding "$category" "$tool" "$report_sev" "$count" \
+      "$count ${noun}(s) at scanner severity ${scanner_sev}"
+  done <<< "$buckets"
 }
 
 # ── A01-A10: SAST — semgrep ───────────────────────────────────────────────────
@@ -120,7 +131,12 @@ try:
     for r in results:
         sev = r.get("extra", {}).get("severity", "WARNING").upper()
         by_sev[sev] = by_sev.get(sev, 0) + 1
+    # Line 1: total; lines 2..N: "SEV COUNT" (one per bucket); then a blank
+    # separator; then the human-readable preview.
     print(len(results))
+    for sev, n in sorted(by_sev.items()):
+        print(f"{sev} {n}")
+    print("")
     for sev, n in sorted(by_sev.items()):
         print(f"  {sev}: {n}")
     for r in results[:15]:
@@ -130,16 +146,27 @@ try:
         line = r.get("start", {}).get("line", "")
         print(f"  [{sev}] {fp}:{line} — {msg}")
 except Exception as e:
-    print(f"0\n  (parse error: {e})")
+    print(f"0\n\n  (parse error: {e})")
 PYEOF
   )
 
   local total
   total=$(echo "$result" | head -1 | tr -d ' ')
-  echo "$result" | tail -n +2
+  # Split: buckets (sev/count pairs) are lines 2 .. first blank; display
+  # preview is everything after the first blank line.
+  local buckets preview
+  buckets=$(echo "$result" | awk 'NR>1 { if ($0=="") exit; print }')
+  preview=$(echo "$result" | awk 'NR>1 { if (found) print; if ($0=="") found=1 }')
+  echo "$preview"
 
   if [ "${total:-0}" -gt 0 ]; then
-    record_finding "A01-A10" "semgrep" "HIGH" "$total" "$total finding(s) from OWASP+secrets ruleset"
+    # semgrep severities → report severities:
+    #   ERROR   → CRITICAL (per SKILL.md severity mapping)
+    #   WARNING → HIGH
+    #   INFO    → LOW
+    record_by_severity "A01-A10" "semgrep" \
+      "{'ERROR':'CRITICAL','WARNING':'HIGH','INFO':'LOW'}" \
+      "semgrep finding" "$buckets"
     echo -e "${RED}  semgrep: $total finding(s) — see $out_file${NC}"
   else
     echo -e "${GREEN}  semgrep: no findings${NC}"
@@ -173,7 +200,12 @@ try:
     for r in results:
         sev = r.get("issue_severity", "MEDIUM").upper()
         by_sev[sev] = by_sev.get(sev, 0) + 1
+    # Line 1: total; lines 2..N: "SEV COUNT" pairs; then blank separator;
+    # then the human-readable preview.
     print(len(results))
+    for sev, n in sorted(by_sev.items()):
+        print(f"{sev} {n}")
+    print("")
     for sev, n in sorted(by_sev.items()):
         print(f"  {sev}: {n}")
     for r in results[:15]:
@@ -184,16 +216,25 @@ try:
         line    = r.get("line_number", "")
         print(f"  [{sev}] {test_id} {fname}:{line} — {msg}")
 except Exception as e:
-    print(f"0\n  (parse error: {e})")
+    print(f"0\n\n  (parse error: {e})")
 PYEOF
   )
 
   local total
   total=$(echo "$result" | head -1 | tr -d ' ')
-  echo "$result" | tail -n +2
+  local buckets preview
+  buckets=$(echo "$result" | awk 'NR>1 { if ($0=="") exit; print }')
+  preview=$(echo "$result" | awk 'NR>1 { if (found) print; if ($0=="") found=1 }')
+  echo "$preview"
 
   if [ "${total:-0}" -gt 0 ]; then
-    record_finding "A02/A03" "bandit" "MEDIUM" "$total" "$total Python security issue(s)"
+    # bandit severities → report severities (per SKILL.md severity mapping):
+    #   HIGH   → HIGH
+    #   MEDIUM → MEDIUM
+    #   LOW    → LOW
+    record_by_severity "A02/A03" "bandit" \
+      "{'HIGH':'HIGH','MEDIUM':'MEDIUM','LOW':'LOW'}" \
+      "Python security issue" "$buckets"
     echo -e "${RED}  bandit: $total issue(s) — see $out_file${NC}"
   else
     echo -e "${GREEN}  bandit: no issues${NC}"
@@ -259,6 +300,11 @@ run_secret_scan() {
   elif tool_available trufflehog; then
     echo -e "${GREEN}  Running trufflehog...${NC}"
     trufflehog filesystem "$TARGET" 2>&1 | tee "$out_file" | tail -20 || true
+    # Heuristic: grep for "found" / "detector" in trufflehog's human-readable
+    # output. This is intentionally loose and may count benign status lines
+    # (e.g. "No secrets found"). For higher-fidelity counts, invoke trufflehog
+    # with `--json` and count records whose `Verified == true` or whose
+    # `DetectorName` is set. Left as-is to avoid requiring jq as a dependency.
     local leak_count
     leak_count=$(grep -ci "found\|detector" "$out_file" || true)
     if [ "${leak_count:-0}" -gt 0 ]; then
@@ -285,6 +331,9 @@ run_secret_scan() {
     grep_count=$(wc -l < "$out_file" | tr -d ' ')
     cat "$out_file"
     if [ "${grep_count:-0}" -gt 0 ]; then
+      # Severity HIGH (not CRITICAL) for the grep fallback: pattern matching
+      # is noisier than gitleaks/trufflehog and is likely to surface more
+      # false positives, so we downgrade by one level to reduce alert fatigue.
       record_finding "A02" "grep-secrets" "HIGH" "$grep_count" "$grep_count potential hardcoded secret pattern(s)"
       echo -e "${RED}  grep: $grep_count potential pattern(s) — see $out_file${NC}"
     else
@@ -295,9 +344,19 @@ run_secret_scan() {
 
 # ── A06/A08: Dependency audit — Node.js ──────────────────────────────────────
 run_npm_audit() {
-  local pkg_dir="$TARGET"
-  [ ! -f "$TARGET/package.json" ] && [ -f "package.json" ] && pkg_dir="."
-  [ ! -f "$pkg_dir/package.json" ] && return
+  # Resolve pkg_dir: if TARGET is a directory containing package.json, use it;
+  # if TARGET is a file whose parent contains package.json, use the parent;
+  # otherwise fall back to CWD if it has one. Skip cleanly if none match.
+  local pkg_dir=""
+  if [ -d "$TARGET" ] && [ -f "$TARGET/package.json" ]; then
+    pkg_dir="$TARGET"
+  elif [ -f "$TARGET" ] && [ -f "$(dirname "$TARGET")/package.json" ]; then
+    pkg_dir="$(dirname "$TARGET")"
+  elif [ -f "package.json" ]; then
+    pkg_dir="."
+  else
+    return
+  fi
 
   section "A06/A08 Node.js Dependencies: npm audit"
   if ! tool_available npm; then
@@ -318,22 +377,40 @@ try:
         data = json.load(f)
     vulns = data.get("metadata", {}).get("vulnerabilities", {})
     total = sum(vulns.values())
+    # Line 1: total; lines 2..N: "SEV COUNT" pairs (npm-native severity
+    # names); then blank separator; then human-readable preview.
     print(total)
+    for sev in ["critical", "high", "moderate", "low", "info"]:
+        n = vulns.get(sev, 0)
+        if n:
+            print(f"{sev} {n}")
+    print("")
     for sev in ["critical", "high", "moderate", "low"]:
         n = vulns.get(sev, 0)
         if n:
             print(f"  {sev}: {n}")
 except Exception as e:
-    print(f"0\n  (parse error: {e})")
+    print(f"0\n\n  (parse error: {e})")
 PYEOF
   )
 
   local total
   total=$(echo "$result" | head -1 | tr -d ' ')
-  echo "$result" | tail -n +2
+  local buckets preview
+  buckets=$(echo "$result" | awk 'NR>1 { if ($0=="") exit; print }')
+  preview=$(echo "$result" | awk 'NR>1 { if (found) print; if ($0=="") found=1 }')
+  echo "$preview"
 
   if [ "${total:-0}" -gt 0 ]; then
-    record_finding "A06" "npm-audit" "HIGH" "$total" "$total npm vulnerability/vulnerabilities"
+    # npm audit severities → report severities (per SKILL.md severity mapping):
+    #   critical → CRITICAL
+    #   high     → HIGH
+    #   moderate → MEDIUM
+    #   low      → LOW
+    #   info     → LOW
+    record_by_severity "A06" "npm-audit" \
+      "{'CRITICAL':'CRITICAL','HIGH':'HIGH','MODERATE':'MEDIUM','LOW':'LOW','INFO':'LOW'}" \
+      "npm vulnerability" "$buckets"
     echo -e "${RED}  npm audit: $total vulnerability/vulnerabilities — see $out_file${NC}"
   else
     echo -e "${GREEN}  npm audit: no vulnerabilities${NC}"
@@ -350,8 +427,37 @@ run_pip_audit() {
     return
   fi
 
+  # Audit the target project's declared dependencies, not the runner's
+  # current Python environment. Prefer (in order):
+  #   1. every requirements*.txt under TARGET via `-r` (explicit)
+  #   2. pyproject.toml via `cd $project_dir && pip-audit` (uses project env)
+  #   3. Pipfile.lock via `-r` if present
+  # This avoids the default behavior of auditing whatever venv the user
+  # happens to have active in their shell.
   local out_file="$OUT_DIR/pip-audit.txt"
-  pip-audit --format=columns 2>/dev/null | tee "$out_file" || true
+  local project_dir=""
+  if [ -d "$TARGET" ]; then
+    project_dir="$TARGET"
+  elif [ -f "$TARGET" ]; then
+    project_dir="$(dirname "$TARGET")"
+  fi
+
+  local req_args=()
+  if [ -n "$project_dir" ]; then
+    # Collect every requirements*.txt under the project directory.
+    while IFS= read -r -d '' req; do
+      req_args+=("-r" "$req")
+    done < <(find "$project_dir" -maxdepth 4 -name "requirements*.txt" -type f -print0 2>/dev/null)
+  fi
+
+  if [ "${#req_args[@]}" -gt 0 ]; then
+    pip-audit --format=columns "${req_args[@]}" 2>&1 | tee "$out_file" || true
+  elif [ -n "$project_dir" ] && { [ -f "$project_dir/pyproject.toml" ] || [ -f "$project_dir/Pipfile.lock" ]; }; then
+    (cd "$project_dir" && pip-audit --format=columns 2>&1) | tee "$out_file" || true
+  else
+    pip-audit --format=columns 2>&1 | tee "$out_file" || true
+  fi
+
   local vuln_count
   vuln_count=$(grep -cE "^[A-Z]" "$out_file" || true)
 
@@ -470,7 +576,16 @@ run_trivy() {
   issue_count=$(grep -cE "^(CRITICAL|HIGH|MEDIUM|LOW)" "$out_file" || true)
 
   if [ "${issue_count:-0}" -gt 0 ]; then
-    record_finding "A05" "trivy" "MEDIUM" "$issue_count" "$issue_count container/IaC misconfiguration(s)"
+    # Per-severity breakdown so the summary preserves real severity.
+    local sev n
+    local buckets=""
+    for sev in CRITICAL HIGH MEDIUM LOW; do
+      n=$(grep -cE "^${sev}" "$out_file" || true)
+      [ "${n:-0}" -gt 0 ] && buckets+="${sev} ${n}"$'\n'
+    done
+    record_by_severity "A05" "trivy" \
+      "{'CRITICAL':'CRITICAL','HIGH':'HIGH','MEDIUM':'MEDIUM','LOW':'LOW'}" \
+      "container/IaC misconfiguration" "$buckets"
     echo -e "${RED}  trivy: $issue_count misconfiguration(s) — see $out_file${NC}"
   else
     echo -e "${GREEN}  trivy: no misconfigurations${NC}"

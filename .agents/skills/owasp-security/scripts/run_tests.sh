@@ -10,47 +10,15 @@
 
 set -uo pipefail
 
-TARGET="${1:-.}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
 
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+TARGET="${1:-.}"
 
 echo -e "\n${CYAN}${BOLD}══════════════════════════════════════════════════${NC}"
 echo -e "${CYAN}${BOLD}  Test Suite Runner: $TARGET${NC}"
 echo -e "${CYAN}${BOLD}══════════════════════════════════════════════════${NC}\n"
-
-tool_available() {
-  command -v "$1" &>/dev/null
-}
-
-has_files() {
-  # Usage: has_files <path> <glob> [glob ...]
-  # When <path> is a regular file, matches globs against the file's basename only.
-  # When <path> is a directory, searches recursively via find.
-  # Note: directory-name globs (e.g. "spec", "test") only work correctly when
-  # <path> is a directory — passing a single file will never match them.
-  local dir="$1"; shift
-  if [ -f "$dir" ]; then
-    local fname
-    fname="$(basename "$dir")"
-    for glob in "$@"; do
-      case "$fname" in
-        $glob) return 0 ;;
-      esac
-    done
-    return 1
-  fi
-  for glob in "$@"; do
-    if find "$dir" -name "$glob" -quit 2>/dev/null | grep -q .; then
-      return 0
-    fi
-  done
-  return 1
-}
 
 run_and_report() {
   local framework="$1"; shift
@@ -69,11 +37,17 @@ run_and_report() {
 # ── Python ────────────────────────────────────────────────────────────────────
 if has_files "$TARGET" "*.py"; then
   if has_files "$TARGET" "pytest.ini" "pyproject.toml" "setup.cfg" "conftest.py" "test_*.py" "*_test.py"; then
+    # Prefer pytest (as a binary, then via `python3 -m pytest`); fall back to
+    # stdlib unittest only when neither pytest path is available. We explicitly
+    # probe for availability rather than chaining with `||`, because
+    # run_and_report calls `exit` on both success and failure — a chained
+    # fallback would therefore be unreachable.
     if tool_available pytest; then
       run_and_report "pytest" pytest "$TARGET" -v --tb=short
+    elif tool_available python3 && python3 -c "import pytest" 2>/dev/null; then
+      run_and_report "pytest (python3 -m)" python3 -m pytest "$TARGET" -v --tb=short
     elif tool_available python3; then
-      run_and_report "unittest" python3 -m pytest "$TARGET" -v --tb=short 2>/dev/null \
-        || run_and_report "unittest" python3 -m unittest discover -s "$TARGET" -v
+      run_and_report "unittest" python3 -m unittest discover -s "$TARGET" -v
     fi
   fi
 fi
@@ -159,7 +133,6 @@ if has_files "$TARGET" "Gemfile"; then
   fi
 fi
 
-# ── No framework detected ─────────────────────────────────────────────────────
 # ── No framework detected ─────────────────────────────────────────────────────
 # If we reach here, either no framework files were found OR the runner binary
 # is not installed. Log which case applies so users know what to install.

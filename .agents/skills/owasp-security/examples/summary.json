@@ -10,9 +10,23 @@
     {
       "category": "A02/A03",
       "tool": "bandit",
+      "severity": "HIGH",
+      "count": 2,
+      "message": "2 Python security issue(s) at scanner severity HIGH"
+    },
+    {
+      "category": "A02/A03",
+      "tool": "bandit",
+      "severity": "LOW",
+      "count": 2,
+      "message": "2 Python security issue(s) at scanner severity LOW"
+    },
+    {
+      "category": "A02/A03",
+      "tool": "bandit",
       "severity": "MEDIUM",
-      "count": 7,
-      "message": "7 Python security issue(s)"
+      "count": 3,
+      "message": "3 Python security issue(s) at scanner severity MEDIUM"
     }
   ]
 }

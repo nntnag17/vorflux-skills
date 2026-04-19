@@ -8,7 +8,6 @@ allowed-tools:
   - write
   - bash
 metadata:
-  version: "1.0"
   tags: [security, owasp, sast, secrets, dependencies, testing]
 ---
 
@@ -123,6 +122,13 @@ Fill in `templates/owasp_report.md` with:
 - Manual checklist findings from Step 4
 
 Apply the severity mapping table above to translate scanner severities into report severities. Group findings by OWASP category (A01–A10).
+
+> **Severity preservation:** `summary.json` emits one record per **scanner
+> severity bucket** (e.g. separate entries for bandit HIGH, MEDIUM, LOW)
+> rather than a single aggregate per tool. When a finding's true severity
+> matters for prioritization, cross-reference the per-tool raw output
+> (`bandit.json`, `semgrep.json`, `npm-audit.json`, etc.) under
+> `./owasp-findings/` to pull the exact file/line/rule for each issue.
 
 ### Step 6 — Present findings
 

@@ -10,7 +10,7 @@ tools are not installed.
 | File | Purpose |
 |------|---------|
 | `vulnerable_sample.py` | Intentionally insecure Python file covering A02 (weak crypto, hardcoded credentials), A03 (SQL injection, shell injection, eval), A09 (password in logs), and A10 (SSRF). **Do not use any of these patterns in production.** |
-| `summary.json` | Normalized JSON output from `owasp_scan.sh` — 7 bandit findings, skipped tools listed. This file is intentionally compact (one aggregated record per tool); per-finding detail (file, line, rule, severity) lives in `bandit.json`. |
+| `summary.json` | Normalized JSON output from `owasp_scan.sh`. Contains one record per **scanner severity bucket** (e.g. separate entries for bandit HIGH=2, MEDIUM=3, LOW=2) plus `total_findings: 7` and the list of skipped tools. Per-finding detail (file, line, rule, CWE) lives in `bandit.json`. |
 | `bandit.json` | Raw bandit output (full detail per finding). |
 
 ## How the scan was run
@@ -27,8 +27,11 @@ bash "$SKILL_DIR/scripts/owasp_scan.sh" \
 Tools available during this run: **bandit** (installed).
 Tools skipped (not installed): semgrep, gitleaks, trufflehog, osv-scanner.
 
-The `summary.json` shows `total_findings: 7` — all from bandit — demonstrating that
-the skill correctly surfaces A02/A03 issues even with only one scanner available.
+The `summary.json` shows `total_findings: 7` — all from bandit — split across three
+severity buckets (HIGH: 2, MEDIUM: 3, LOW: 2). This demonstrates that the skill
+correctly surfaces A02/A03 issues and **preserves the real scanner severity** in
+the normalized output (rather than collapsing every bandit result to a single
+aggregate severity).
 
 ## Secret-scanner allowlist
 
