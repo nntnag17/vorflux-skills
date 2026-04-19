@@ -35,6 +35,9 @@ IGNORE_DIRS = {
     ".mypy_cache", ".ruff_cache", "target", "vendor",
 }
 
+# Dotdirs included in structure rendering (beyond .github).
+INCLUDE_DOTDIRS = {".github", ".claude", ".gemini", ".opencode", ".agents"}
+
 TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "README_skeleton.md"
 
 
@@ -47,6 +50,12 @@ def read_safe(path) -> str:
         return Path(path).read_text(errors="ignore")
     except Exception:
         return ""
+
+
+def _extract_toml_field(content: str, field: str) -> str | None:
+    """Extract a simple top-level TOML scalar field like `name = "foo"`."""
+    m = re.search(rf'^{field}\s*=\s*["\']([^"\']+)', content, re.MULTILINE)
+    return m.group(1) if m else None
 
 
 def walk_source(root: Path, exts: tuple, max_files: int = 60):
@@ -118,15 +127,10 @@ def detect_stack(root: Path) -> dict:
         info["test_runner"] = "pytest"
         if (root / "pyproject.toml").exists():
             content = read_safe(root / "pyproject.toml")
-            m = re.search(r'name\s*=\s*["\']([^"\']+)', content)
-            if m:
-                info["name"] = m.group(1)
-            m = re.search(r'version\s*=\s*["\']([^"\']+)', content)
-            if m:
-                info["version"] = m.group(1)
-            m = re.search(r'description\s*=\s*["\']([^"\']+)', content)
-            if m:
-                info["description"] = m.group(1)
+            for field in ("name", "version", "description"):
+                val = _extract_toml_field(content, field)
+                if val:
+                    info[field] = val
             for fw in ["fastapi", "django", "flask", "starlette", "litestar", "tornado"]:
                 if fw in content.lower():
                     info["framework"] = fw.capitalize()
@@ -154,10 +158,8 @@ def detect_stack(root: Path) -> dict:
         info["package_manager"] = "cargo"
         info["test_runner"] = "cargo test"
         content = read_safe(root / "Cargo.toml")
-        m = re.search(r'^name\s*=\s*"([^"]+)"', content, re.MULTILINE)
-        info["name"] = m.group(1) if m else root.name
-        m = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
-        info["version"] = m.group(1) if m else "0.1.0"
+        info["name"] = _extract_toml_field(content, "name") or root.name
+        info["version"] = _extract_toml_field(content, "version") or "0.1.0"
         info["runtime"] = "Rust (stable)"
 
     # ---- Java / Kotlin ----
@@ -225,10 +227,14 @@ def extract_python_api(files: list) -> list:
         if not src:
             continue
         try:
-            tree = ast.parse(src)
+            import warnings as _warnings
+            with _warnings.catch_warnings():
+                _warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(src)
         except SyntaxError:
             continue
-        for node in ast.walk(tree):
+        # Only walk top-level items — don't descend into private classes.
+        for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.name.startswith("_"):
                     continue
@@ -262,6 +268,10 @@ def extract_js_api(files: list) -> list:
         r"export\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
     )
     for fpath in sorted(files)[:20]:
+        src = read_safe(fpath)
+        if not src:
+            continue
+        for m in export_re.finditer(src):
             symbols.append({
                 "module": Path(fpath).stem,
                 "name": m.group(1),
@@ -325,12 +335,12 @@ def extract_env_vars(root: Path) -> list:
     # Dict-key dedup prevents duplicates with .env.example entries.
     # Only non-shell source extensions are scanned, avoiding shell variable false positives.
     patterns = [
-        r'os\.environ\.get\(["\']([A-Z_][A-Z0-9_]{1,})',
-        r'os\.environ\[["\']([A-Z_][A-Z0-9_]{1,})',
-        r'process\.env\.([A-Z_][A-Z0-9_]{1,})',
-        r'os\.Getenv\(["\']([A-Z_][A-Z0-9_]{1,})',
-        r'std::env::var\(["\']([A-Z_][A-Z0-9_]{1,})',
-        r'ENV\[["\']([A-Z_][A-Z0-9_]{1,})',
+        r'os\.environ\.get\(["\']([A-Z_][A-Z0-9_]+)',
+        r'os\.environ\[["\']([A-Z_][A-Z0-9_]+)',
+        r'process\.env\.([A-Z_][A-Z0-9_]+)',
+        r'os\.Getenv\(["\']([A-Z_][A-Z0-9_]+)',
+        r'std::env::var\(["\']([A-Z_][A-Z0-9_]+)',
+        r'ENV\[["\']([A-Z_][A-Z0-9_]+)',
     ]
     combined = re.compile("|".join(patterns))
     for fpath in walk_source(root, (".py", ".js", ".ts", ".go", ".rs", ".rb"), max_files=40):
@@ -353,10 +363,21 @@ def detect_cli_entrypoints(root: Path, stack: dict) -> list:
 
     if lang == "Python":
         content = read_safe(root / "pyproject.toml")
-        for m in re.finditer(r'^\s*([a-z][a-z0-9_-]*)\s*=\s*"([^"]+)"', content, re.MULTILINE):
-            entrypoints.append({"command": m.group(1), "target": m.group(2)})
-        content = read_safe(root / "setup.py")
-        for m in re.finditer(r'"([a-z][a-z0-9_-]*)=([^"]+)"', content):
+        # Only scan the [project.scripts] / [project.gui-scripts] / [tool.poetry.scripts]
+        # tables — scanning the whole file catches unrelated keys like name/version.
+        scripts_section_re = re.compile(
+            r'^\[(?:project\.(?:gui-)?scripts|tool\.poetry\.scripts)\]\s*\n(.*?)(?=^\[|\Z)',
+            re.MULTILINE | re.DOTALL,
+        )
+        entry_re = re.compile(
+            r'^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*["\']([^"\']+)["\']',
+            re.MULTILINE,
+        )
+        for section in scripts_section_re.finditer(content):
+            for m in entry_re.finditer(section.group(1)):
+                entrypoints.append({"command": m.group(1), "target": m.group(2)})
+        setup_content = read_safe(root / "setup.py")
+        for m in re.finditer(r'"([a-z][a-z0-9_-]*)=([^"]+)"', setup_content):
             entrypoints.append({"command": m.group(1), "target": m.group(2)})
         for f in root.rglob("__main__.py"):
             if not any(p in str(f) for p in IGNORE_DIRS):
@@ -441,9 +462,6 @@ PURPOSE_MAP = {
 
 
 def describe_structure(root: Path) -> list:
-    # Dotdirs included in structure rendering (beyond .github).
-    INCLUDE_DOTDIRS = {".github", ".claude", ".gemini", ".opencode", ".agents"}
-
     dirs = []
     files = []
     try:
@@ -467,20 +485,20 @@ def describe_structure(root: Path) -> list:
 # Existing documentation coverage
 # ---------------------------------------------------------------------------
 
+def _exists_any(root: Path, names: list) -> bool:
+    return any((root / n).exists() for n in names)
+
+
 def audit_docs(root: Path) -> dict:
     return {
-        "has_readme": any((root / f).exists() for f in ["README.md", "README.rst", "README.txt"]),
-        "has_license": any((root / f).exists() for f in ["LICENSE", "LICENSE.md", "LICENSE.txt"]),
+        "has_readme": _exists_any(root, ["README.md", "README.rst", "README.txt"]),
+        "has_license": _exists_any(root, ["LICENSE", "LICENSE.md", "LICENSE.txt"]),
         "has_contributing": (root / "CONTRIBUTING.md").exists(),
-        "has_changelog": any((root / f).exists() for f in ["CHANGELOG.md", "CHANGELOG.rst", "HISTORY.md"]),
+        "has_changelog": _exists_any(root, ["CHANGELOG.md", "CHANGELOG.rst", "HISTORY.md"]),
         "has_code_of_conduct": (root / "CODE_OF_CONDUCT.md").exists(),
         "has_security": (root / "SECURITY.md").exists(),
-        "has_docker": (root / "Dockerfile").exists() or (root / "docker-compose.yml").exists()
-                      or (root / "docker-compose.yaml").exists(),
-        "has_ci": (root / ".github" / "workflows").exists()
-                  or (root / ".gitlab-ci.yml").exists()
-                  or (root / ".circleci").exists()
-                  or (root / "Jenkinsfile").exists(),
+        "has_docker": _exists_any(root, ["Dockerfile", "docker-compose.yml", "docker-compose.yaml"]),
+        "has_ci": _exists_any(root, [".github/workflows", ".gitlab-ci.yml", ".circleci", "Jenkinsfile"]),
         "has_makefile": (root / "Makefile").exists(),
         "has_devcontainer": (root / ".devcontainer").exists(),
     }
@@ -490,15 +508,20 @@ def audit_docs(root: Path) -> dict:
 # Detect ports
 # ---------------------------------------------------------------------------
 
+MAX_PORTS_REPORTED = 5
+
+
 def detect_ports(root: Path) -> list:
     ports: set[int] = set()
+    # \b anchors avoid false matches like `report(40404)` containing `port`.
+    port_re = re.compile(r'\b(?:PORT|port|listen)\b[^\d]*(\d{4,5})')
     for fpath in walk_source(root, (".py", ".js", ".ts", ".go", ".rs"), max_files=30):
         src = read_safe(fpath)
-        for m in re.finditer(r'(?:PORT|port|listen)[^\d]*(\d{4,5})', src):
+        for m in port_re.finditer(src):
             p = int(m.group(1))
             if 1000 < p < 65535:
                 ports.add(p)
-    return sorted(ports)[:5]
+    return sorted(ports)[:MAX_PORTS_REPORTED]
 
 
 # ---------------------------------------------------------------------------
@@ -506,30 +529,42 @@ def detect_ports(root: Path) -> list:
 # ---------------------------------------------------------------------------
 
 def build_module_graph(root: Path, stack: dict) -> list:
-    """Return a list of {from, to} import edges for ARCHITECTURE.md."""
+    """Return a list of {from, to} import edges for ARCHITECTURE.md.
+
+    Only in-repo edges are reported — stdlib and third-party modules are
+    filtered out so the graph shows actual internal coupling.
+    """
     lang = stack.get("language", "")
     edges = []
 
     if lang == "Python":
         files = walk_source(root, (".py",), max_files=30)
+        local_modules = {Path(f).stem for f in files}
         for fpath in files:
             src = read_safe(fpath)
             module = Path(fpath).stem
             for m in re.finditer(r"^(?:from|import)\s+([\w.]+)", src, re.MULTILINE):
                 dep = m.group(1).split(".")[0]
-                if dep != module and not dep.startswith("_"):
-                    edges.append({"from": module, "to": dep})
+                if dep == module or dep.startswith("_"):
+                    continue
+                if dep not in local_modules:
+                    continue
+                edges.append({"from": module, "to": dep})
 
     elif lang in ("JavaScript", "TypeScript"):
         files = walk_source(root, (".js", ".ts", ".tsx", ".jsx"), max_files=30)
+        local_modules = {Path(f).stem for f in files}
         for fpath in files:
             src = read_safe(fpath)
             module = Path(fpath).stem
             for m in re.finditer(r'(?:import|require)\s*\(?["\']([^"\']+)["\']', src):
                 dep = m.group(1)
-                if dep.startswith("."):
-                    dep = Path(dep).stem
-                edges.append({"from": module, "to": dep})
+                # Only relative (in-repo) imports are considered.
+                if not dep.startswith("."):
+                    continue
+                dep_stem = Path(dep).stem
+                if dep_stem and dep_stem != module and dep_stem in local_modules:
+                    edges.append({"from": module, "to": dep_stem})
 
     # Deduplicate and limit
     seen = set()
@@ -554,6 +589,7 @@ def _install_command(stack: dict) -> str:
         "yarn": "yarn install",
         "pip": "pip install -r requirements.txt",
         "poetry": "poetry install",
+        "hatch": "hatch env create",
         "go modules": "go mod download",
         "cargo": "cargo build",
         "bundler": "bundle install",
@@ -702,7 +738,7 @@ def _usage_section(stack: dict, cli_entrypoints: list, ports: list, docs: dict) 
     elif lang == "Rust":
         lines.append("cargo run")
     elif lang == "Shell":
-        lines.append("# run individual plugin scripts directly, e.g.:\nbash ./Network/ping.10s.sh")
+        lines.append("# run individual scripts directly, e.g.:\nbash <script>.sh")
     else:
         lines.append(f"{pm} start")
     lines.append("```")
