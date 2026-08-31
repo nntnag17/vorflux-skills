@@ -1,0 +1,32 @@
+{
+  "total_findings": 7,
+  "skipped_tools": [
+    "semgrep",
+    "gitleaks",
+    "trufflehog",
+    "osv-scanner"
+  ],
+  "findings": [
+    {
+      "category": "A02/A03",
+      "tool": "bandit",
+      "severity": "HIGH",
+      "count": 2,
+      "message": "2 Python security issue(s) at scanner severity HIGH"
+    },
+    {
+      "category": "A02/A03",
+      "tool": "bandit",
+      "severity": "LOW",
+      "count": 2,
+      "message": "2 Python security issue(s) at scanner severity LOW"
+    },
+    {
+      "category": "A02/A03",
+      "tool": "bandit",
+      "severity": "MEDIUM",
+      "count": 3,
+      "message": "3 Python security issue(s) at scanner severity MEDIUM"
+    }
+  ]
+}
